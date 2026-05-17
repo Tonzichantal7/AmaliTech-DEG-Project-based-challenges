@@ -1,19 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import asyncio
 
 from app.routers import monitors
 from app.scheduler import start_scheduler, stop_scheduler
+from app import store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    await store.connect()
     await start_scheduler()
     yield
-    # Shutdown
     await stop_scheduler()
+    await store.disconnect()
 
 
 app = FastAPI(

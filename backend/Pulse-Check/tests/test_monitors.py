@@ -1,14 +1,20 @@
 import pytest
 from fastapi.testclient import TestClient
+import mongomock_motor
+import app.store as store
+
+# Patch the motor client with a mock before importing app
+store.client = mongomock_motor.AsyncMongoMockClient()
+
 from app.main import app
-from app.store import get_store
 
 client = TestClient(app)
 
 
 def setup_function():
-    """Clear the store before each test."""
-    get_store().clear()
+    """Clear the collection before each test."""
+    import asyncio
+    asyncio.new_event_loop().run_until_complete(store.get_collection().drop())
 
 
 # ── Register ──────────────────────────────────────────────────────────────────

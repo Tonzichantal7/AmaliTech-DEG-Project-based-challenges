@@ -4,8 +4,6 @@ from enum import Enum
 import os
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-
-_is_atlas = MONGO_URI.startswith("mongodb+srv")
 DB_NAME = "watchdog"
 COLLECTION = "monitors"
 
@@ -24,8 +22,7 @@ def get_collection():
 
 async def connect():
     global client
-    kwargs = {"tls": True, "tlsAllowInvalidCertificates": True} if _is_atlas else {}
-    client = AsyncIOMotorClient(MONGO_URI, **kwargs)
+    client = AsyncIOMotorClient(MONGO_URI, tlsAllowInvalidCertificates=True)
 
 
 async def disconnect():

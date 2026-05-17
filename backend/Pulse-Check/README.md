@@ -95,6 +95,7 @@ Device          API Server         Scheduler         Alert System
 
 - Python 3.10+
 - `pip`
+- [MongoDB](https://www.mongodb.com/try/download/community) running locally **or** a [MongoDB Atlas](https://cloud.mongodb.com) free cluster
 
 ### Installation
 
@@ -110,12 +111,31 @@ source venv/bin/activate      # Windows: venv\Scripts\activate
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Start the server
+# 4. Set environment variable (optional — defaults to localhost)
+export MONGO_URI="mongodb://localhost:27017"   # Windows: set MONGO_URI=...
+
+# 5. Start the server
 python main.py
 ```
 
 The API will be live at **http://localhost:8000**  
 Interactive docs (Swagger UI) at **http://localhost:8000/docs**
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string. Set to your Atlas URI for production. |
+
+### Live Deployment
+
+The API is deployed on Render and backed by MongoDB Atlas:
+
+```
+https://watchdog-sentinel.onrender.com
+```
+
+Swagger UI: **https://watchdog-sentinel.onrender.com/docs**
 
 ### Running Tests
 
@@ -340,15 +360,15 @@ watchdog-sentinel/
 ├── requirements.txt
 ├── .gitignore
 ├── app/
-│   ├── main.py              # FastAPI app + lifespan events
-│   ├── store.py             # In-memory store + Monitor dataclass
-│   ├── scheduler.py         # Async background timer checker
+│   ├── main.py              # FastAPI app + lifespan events (DB connect/disconnect)
+│   ├── store.py             # MongoDB connection, MonitorStatus enum, get_collection()
+│   ├── scheduler.py         # Async background timer checker (queries MongoDB each tick)
 │   ├── alerts.py            # Alert firing logic (log + extension point)
 │   ├── schemas.py           # Pydantic request/response models
 │   └── routers/
 │       └── monitors.py      # All /monitors endpoints
 └── tests/
-    └── test_monitors.py     # 11 pytest tests covering all endpoints
+    └── test_monitors.py     # 11 pytest tests covering all endpoints (uses mongomock-motor — no real DB needed)
 ```
 
 ---
@@ -359,9 +379,12 @@ watchdog-sentinel/
 |---|---|---|
 | Framework | **FastAPI** | Async-native, auto-generates OpenAPI docs, Pydantic validation |
 | Background tasks | **asyncio** | No extra dependency; native to Python's event loop |
+| Database | **MongoDB + Motor** | Async MongoDB driver; persistent storage across restarts |
+| Cloud DB | **MongoDB Atlas** | Free M0 cluster used in production deployment |
 | Validation | **Pydantic v2** | Fast, declarative, email validation built-in |
 | Server | **Uvicorn** | ASGI server optimised for FastAPI |
-| Tests | **pytest + TestClient** | Synchronous test client, no extra async complexity |
+| Tests | **pytest + mongomock-motor** | In-memory MongoDB mock — no real DB required to run tests |
+| Deployment | **Render** | PaaS deployment via Procfile |
 
 ---
 

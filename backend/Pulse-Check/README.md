@@ -388,4 +388,4 @@ watchdog-sentinel/
 
 ---
 
-*Built for the Amaliteck Rwanda Backend Challenge.*
+

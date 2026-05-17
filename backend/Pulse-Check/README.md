@@ -1,156 +1,368 @@
-# Pulse-Check-API ("Watchdog" Sentinel)
+# 🐕 Watchdog Sentinel
 
-This challenge is designed to test your ability to bridge Computer Science fundamentals with Modern Backend Engineering.
-
-## 1. Business Context
-
-> **Client:** _CritMon Servers Inc._ (A Critical Infrastructure Monitoring Company).
-
-### The Problem
-
-CritMon provides monitoring for remote solar farms and unmanned weather stations in areas with poor connectivity. These devices are supposed to send "I'm alive" signals every hour.
-
-Currently, CritMon has no way of knowing if a device has gone offline (due to power failure or theft) until a human manually checks the logs. They need a system that alerts _them_ when a device _stops_ talking.
-
-### The Solution
-
-You need to build a **Dead Man’s Switch API**. Devices will register a "monitor" with a countdown timer (e.g., 60 seconds). If the device fails to "ping" (send a heartbeat) to the API before the timer runs out, the system automatically triggers an alert.
+> **Dead Man's Switch API** — CritMon Servers Inc.  
+> Tracks remote device heartbeats and fires instant alerts the moment a device goes silent.
 
 ---
 
-## 2. Technical Objective
+## Table of Contents
 
-Build a backend service that manages stateful timers.
-
-- **Registration:** Allow a client to create a monitor with a specific timeout duration.
-- **Heartbeat:** Reset the countdown when a ping is received.
-- **Trigger:** Fire a webhook (or log a critical error) if the countdown reaches zero.
-
----
-
-## 3. Getting Started
-
-1.  **Fork this Repository:** Do not clone it directly. Create a fork to your own GitHub account.
-2.  **Environment:** You may use **Node.js, Python, Java or Go, etc.**.
-3.  **Submission:** Your final submission will be a link to your forked repository containing:
-    - The source code.
-    - The **Architecture Diagram**
-    - The `README.md` with documentation.
+1. [Architecture Diagram](#architecture-diagram)
+2. [Setup & Running](#setup--running)
+3. [API Documentation](#api-documentation)
+4. [Developer's Choice Feature](#developers-choice-feature)
+5. [Project Structure](#project-structure)
 
 ---
 
-## 4. The Architecture Diagram
+## Architecture Diagram
 
-**Task:** Before you write any code, you must design the logic flow.
-**Deliverable:** A **Sequence Diagram** or **State Flowchart** embedded in your `README.md`.
+### State Flowchart — Monitor Lifecycle
 
----
+```
+                          ┌─────────────────────────────┐
+                          │   POST /monitors             │
+                          │  {"id", "timeout", "email"}  │
+                          └──────────────┬──────────────┘
+                                         │
+                                         ▼
+                          ┌─────────────────────────────┐
+                          │         ACTIVE               │
+                          │  Countdown timer running     │
+                          │  deadline = now + timeout    │
+                          └───┬─────────────┬───────────┘
+                              │             │
+              POST /heartbeat │             │ POST /pause
+                              │             │
+                              ▼             ▼
+                 ┌──────────────────┐  ┌──────────────────┐
+                 │     ACTIVE       │  │     PAUSED        │
+                 │  Timer reset to  │  │  deadline = None  │
+                 │  full timeout    │  │  No alerts fire   │
+                 └──────────────────┘  └────────┬─────────┘
+                                                │
+                                                │ POST /heartbeat
+                                                │ (auto-unpause)
+                                                ▼
+                                       ┌──────────────────┐
+                                       │     ACTIVE        │
+                                       │  Timer restarted  │
+                                       └──────────────────┘
 
-## 5. User Stories & Acceptance Criteria
+                 ┌───────────────────────────────────────┐
+                 │  Background Scheduler (ticks every 1s) │
+                 │                                        │
+                 │  IF now >= deadline AND status=ACTIVE: │
+                 │    → status = DOWN                     │
+                 │    → fire_alert() → console.log JSON   │
+                 └───────────────────────────────────────┘
 
-### User Story 1: Registering a Monitor
+                 ┌──────────────────┐
+                 │      DOWN         │
+                 │  Alert fired.     │
+                 │  Re-register to   │
+                 │  start fresh.     │
+                 └──────────────────┘
+```
 
-**As a** device administrator,
-**I want to** create a new monitor for my device,
-**So that** the system knows to track its status.
+### Sequence Diagram — Happy Path vs. Alert Path
 
-**Acceptance Criteria:**
-
-- [ ] The API accepts a `POST /monitors` request.
-- [ ] Input: `{"id": "device-123", "timeout": 60, "alert_email": "admin@critmon.com"}`.
-- [ ] The system starts a countdown timer for 60 seconds associated with `device-123`.
-- [ ] Response: `201 Created` with a confirmation message.
-
-### User Story 2: The Heartbeat (Reset)
-
-**As a** remote device,
-**I want to** send a signal to the server,
-**So that** my timer is reset and no alert is sent.
-
-**Acceptance Criteria:**
-
-- [ ] The API accepts a `POST /monitors/{id}/heartbeat` request.
-- [ ] If the ID exists and the timer has NOT expired:
-  - [ ] Restart the countdown from the beginning (e.g., reset to 60 seconds).
-  - [ ] Return `200 OK`.
-- [ ] If the ID does not exist:
-  - [ ] Return `404 Not Found`.
-
-### User Story 3: The Alert (Failure State)
-
-**As a** support engineer,
-**I want to** be notified immediately if a device stops sending heartbeats,
-**So that** I can deploy a repair team.
-
-**Acceptance Criteria:**
-
-- [ ] If the timer for `device-123` reaches 0 seconds (no heartbeat received):
-  - [ ] The system must internally "fire" an alert.
-  - [ ] **Implementation:** For this project, simply `console.log` a JSON object: `{"ALERT": "Device device-123 is down!", "time": <timestamp>}`. (Or simulate sending an email).
-  - [ ] The monitor status changes to `down`.
-
----
-
-## 6. Bonus User Story (The "Snooze" Button)
-
-**As a** maintenance technician,
-**I want to** pause monitoring while I am repairing a device,
-**So that** I don't trigger false alarms.
-
-**Acceptance Criteria:**
-
-- [ ] Create a `POST /monitors/{id}/pause` endpoint.
-- [ ] When called, the timer stops completely. No alerts will fire.
-- [ ] Calling the heartbeat endpoint again automatically "un-pauses" the monitor and restarts the timer.
-
----
-
-## 7. The "Developer's Choice" Challenge
-
-We value engineers who look for "what's missing."
-
-**Task:** Identify **one** additional feature that makes this system more robust or user-friendly.
-
-1.  **Implement it.**
-2.  **Document it:** Explain _why_ you added it in your README.
+```
+Device          API Server         Scheduler         Alert System
+  │                │                   │                  │
+  │─POST /monitors─▶                   │                  │
+  │                │─── store Monitor──▶                  │
+  │◀── 201 Created─│   deadline=T+60s  │                  │
+  │                │                   │                  │
+  │  (45s later)   │                   │                  │
+  │─POST /heartbeat▶                   │                  │
+  │                │── reset deadline ─▶                  │
+  │◀─── 200 OK ────│   deadline=T+105s │                  │
+  │                │                   │                  │
+  │  (device dies) │                   │                  │
+  │                │                   │── now≥deadline? ─▶
+  │                │                   │   YES             │
+  │                │◀── status=DOWN ───│                  │
+  │                │                   │──fire_alert()────▶
+  │                │                   │                  │── log JSON alert
+```
 
 ---
 
-## 8. Documentation Requirements
+## Setup & Running
 
-Your final `README.md` must replace these instructions. It must cover:
+### Prerequisites
 
-1.  **Architecture Diagram**
-2.  **Setup Instructions**
-3.  **API Documentation**
-4.  **The Developer's Choice:** Explanation of your added feature.
+- Python 3.10+
+- `pip`
+
+### Installation
+
+```bash
+# 1. Clone your fork
+git clone https://github.com/<your-username>/watchdog-sentinel.git
+cd watchdog-sentinel
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Start the server
+python main.py
+```
+
+The API will be live at **http://localhost:8000**  
+Interactive docs (Swagger UI) at **http://localhost:8000/docs**
+
+### Running Tests
+
+```bash
+pytest tests/ -v
+```
 
 ---
 
-Submit your repo link via the [online](https://forms.cloud.microsoft/e/bLyGT3byxx) form.
+## API Documentation
 
-## 🛑 Pre-Submission Checklist
+### Base URL
 
-**WARNING:** Before you submit your solution, you **MUST** pass every item on this list.
-If you miss any of these critical steps, your submission will be **automatically rejected** and you will **NOT** be invited to an interview.
-
-### 1. 📂 Repository & Code
-
-- [ ] **Public Access:** Is your GitHub repository set to **Public**? (We cannot review private repos).
-- [ ] **Clean Code:** Did you remove unnecessary files (like `node_modules`, `.env` with real keys, or `.DS_Store`)?
-- [ ] **Run Check:** if we clone your repo and run `npm start` (or equivalent), does the server start immediately without crashing?
-
-### 2. 📄 Documentation (Crucial)
-
-- [ ] **Architecture Diagram:** Did you include a visual Diagram (Flowchart or Sequence Diagram) in the README?
-- [ ] **README Swap:** Did you **DELETE** the original instructions (the problem brief) from this file and replace it with your own documentation?
-- [ ] **API Docs:** Is there a clear list of Endpoints and Example Requests in the README?
-
-### 3. 🧹 Git Hygiene
-
-- [ ] **Commit History:** Does your repo have multiple commits with meaningful messages? (A single "Initial Commit" is a red flag).
+```
+http://localhost:8000
+```
 
 ---
 
-**Ready?**
-If you checked all the boxes above, submit your repository link in the application form. Good luck! 🚀
+### `POST /monitors` — Register a Monitor
+
+Start tracking a new device.
+
+**Request Body**
+
+```json
+{
+  "id": "device-123",
+  "timeout": 60,
+  "alert_email": "admin@critmon.com"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | ✅ | Unique device identifier |
+| `timeout` | integer | ✅ | Countdown duration in seconds (5 – 86400) |
+| `alert_email` | string | ✅ | Email address to alert on silence |
+
+**Response — `201 Created`**
+
+```json
+{
+  "id": "device-123",
+  "timeout": 60,
+  "alert_email": "admin@critmon.com",
+  "status": "active",
+  "created_at": "2025-06-15T10:00:00Z",
+  "last_ping_at": null,
+  "deadline": "2025-06-15T10:01:00Z",
+  "alert_fired": false
+}
+```
+
+**Error Responses**
+
+| Code | Reason |
+|---|---|
+| `409 Conflict` | A monitor with this ID already exists |
+| `422 Unprocessable` | Invalid input (bad email, timeout out of range) |
+
+---
+
+### `POST /monitors/{id}/heartbeat` — Send Heartbeat
+
+Reset the countdown timer. Call this repeatedly to keep the monitor alive.
+
+**Example**
+
+```bash
+curl -X POST http://localhost:8000/monitors/device-123/heartbeat
+```
+
+**Response — `200 OK`**
+
+```json
+{
+  "message": "Heartbeat received. Timer reset.",
+  "monitor_id": "device-123"
+}
+```
+
+**Error Responses**
+
+| Code | Reason |
+|---|---|
+| `404 Not Found` | Monitor ID does not exist |
+| `410 Gone` | Monitor has already fired its alert (status: down) |
+
+> **Note:** Sending a heartbeat to a **paused** monitor automatically unpauses it and restarts the timer.
+
+---
+
+### `POST /monitors/{id}/pause` — Pause a Monitor
+
+Freeze the timer. Useful during planned maintenance to prevent false alarms.
+
+**Example**
+
+```bash
+curl -X POST http://localhost:8000/monitors/device-123/pause
+```
+
+**Response — `200 OK`**
+
+```json
+{
+  "message": "Monitor paused. No alerts will fire until the next heartbeat.",
+  "monitor_id": "device-123"
+}
+```
+
+**Resuming:** Call the heartbeat endpoint to automatically unpause.
+
+---
+
+### `GET /monitors` — List All Monitors *(Developer's Choice)*
+
+Returns the full list of registered monitors and their current status. Ideal for a dashboard.
+
+```bash
+curl http://localhost:8000/monitors
+```
+
+**Response — `200 OK`**
+
+```json
+[
+  {
+    "id": "device-123",
+    "status": "active",
+    "deadline": "2025-06-15T10:02:30Z",
+    ...
+  },
+  {
+    "id": "solar-farm-7",
+    "status": "down",
+    ...
+  }
+]
+```
+
+---
+
+### `GET /monitors/{id}` — Get a Single Monitor *(Developer's Choice)*
+
+Inspect the current state of one device.
+
+```bash
+curl http://localhost:8000/monitors/device-123
+```
+
+---
+
+### `DELETE /monitors/{id}` — Deregister a Monitor *(Developer's Choice)*
+
+Permanently remove a monitor from the system.
+
+```bash
+curl -X DELETE http://localhost:8000/monitors/device-123
+```
+
+**Response — `200 OK`**
+
+```json
+{
+  "message": "Monitor deregistered and removed.",
+  "monitor_id": "device-123"
+}
+```
+
+---
+
+## Alert Output
+
+When a device's timer expires, the system logs this to stdout:
+
+```json
+{
+  "ALERT": "Device device-123 is down!",
+  "device_id": "device-123",
+  "alert_email": "admin@critmon.com",
+  "timeout_seconds": 60,
+  "last_ping_at": "2025-06-15T09:59:00Z",
+  "time": "2025-06-15T10:01:00Z"
+}
+```
+
+The `alerts.py` module includes a commented-out extension point to wire in real email (SMTP) or a webhook POST.
+
+---
+
+## Developer's Choice Feature
+
+### Feature: Monitor Management Endpoints (`GET /monitors`, `GET /monitors/{id}`, `DELETE /monitors/{id}`)
+
+**Why I added this:**
+
+The core spec gives you the ability to *create* monitors and *ping* them — but no way to *observe* the system. In a real critical infrastructure context, this gap is dangerous:
+
+- Support engineers can't check the status of 50 solar-farm devices at a glance.
+- There's no way to clean up stale/decommissioned monitors, which would accumulate forever.
+- Debugging is impossible without being able to inspect `deadline`, `last_ping_at`, and `status`.
+
+The three added endpoints solve these real operational problems:
+
+| Endpoint | Problem Solved |
+|---|---|
+| `GET /monitors` | Dashboard view — see all device statuses at once |
+| `GET /monitors/{id}` | Debug individual device — confirm timer is resetting |
+| `DELETE /monitors/{id}` | Lifecycle management — remove decommissioned devices |
+
+These endpoints require zero extra dependencies and follow the same patterns as the core API, making the system production-usable rather than just demo-able.
+
+---
+
+## Project Structure
+
+```
+watchdog-sentinel/
+├── main.py                  # Entry point — starts uvicorn
+├── requirements.txt
+├── .gitignore
+├── app/
+│   ├── main.py              # FastAPI app + lifespan events
+│   ├── store.py             # In-memory store + Monitor dataclass
+│   ├── scheduler.py         # Async background timer checker
+│   ├── alerts.py            # Alert firing logic (log + extension point)
+│   ├── schemas.py           # Pydantic request/response models
+│   └── routers/
+│       └── monitors.py      # All /monitors endpoints
+└── tests/
+    └── test_monitors.py     # 11 pytest tests covering all endpoints
+```
+
+---
+
+## Tech Stack
+
+| Layer | Choice | Reason |
+|---|---|---|
+| Framework | **FastAPI** | Async-native, auto-generates OpenAPI docs, Pydantic validation |
+| Background tasks | **asyncio** | No extra dependency; native to Python's event loop |
+| Validation | **Pydantic v2** | Fast, declarative, email validation built-in |
+| Server | **Uvicorn** | ASGI server optimised for FastAPI |
+| Tests | **pytest + TestClient** | Synchronous test client, no extra async complexity |
+
+---
+
+*Built for the Amaliteck Rwanda Backend Challenge.*
